@@ -279,20 +279,32 @@ export function startAssistant(): void {
     const onLeft = left - bounds.x < width / 2;
     ui.wrap.classList.toggle('left', onLeft);
     $('.bottom').hidden = mobile;
-    // 覆盖浏览器的可见视口，也跟随软键盘和缩放后的边界。
-    ui.panel.style.left = `${bounds.x}px`;
-    ui.panel.style.top = `${bounds.y}px`;
-    ui.panel.style.width = `${width}px`;
-    ui.panel.style.height = `${winHeight}px`;
+    if (mobile) {
+      ui.panel.style.left = `${bounds.x}px`;
+      ui.panel.style.top = `${bounds.y}px`;
+      ui.panel.style.width = `${width}px`;
+      ui.panel.style.height = `${winHeight}px`;
+      ui.panel.style.maxHeight = 'none';
+    } else {
+      const panelWidth = Math.min(360, width - 32);
+      ui.panel.style.width = `${panelWidth}px`;
+      ui.panel.style.height = 'auto';
+      ui.panel.style.maxHeight = `${winHeight - 32}px`;
+      const panelLeft = onLeft ? left + 70 : left - panelWidth - 12;
+      ui.panel.style.left = `${Math.max(bounds.x + 16, Math.min(bounds.x + width - panelWidth - 16, panelLeft))}px`;
+      ui.panel.style.top = `${Math.max(bounds.y + 16, Math.min(top, bounds.y + winHeight - ui.panel.offsetHeight - 16))}px`;
+    }
     const toastWidth = ui.toast.offsetWidth || 220;
     ui.toast.style.left = `${Math.max(8, Math.min(width - toastWidth - 8, onLeft ? left + 70 : left - toastWidth - 12)) - left}px`;
     ui.toast.style.right = 'auto';
     ui.side.textContent = onLeft ? '移到右侧' : '移到左侧';
     if (readerState || archiveMode) {
-      reader.panel.style.left = `${bounds.x}px`;
-      reader.panel.style.top = `${bounds.y}px`;
-      reader.panel.style.width = `${width}px`;
-      reader.panel.style.height = `${winHeight}px`;
+      const readerWidth = mobile ? width : Math.min(1040, width - 64);
+      const readerHeight = mobile ? winHeight : Math.min(900, winHeight - 64);
+      reader.panel.style.left = `${bounds.x + (width - readerWidth) / 2}px`;
+      reader.panel.style.top = `${bounds.y + (winHeight - readerHeight) / 2}px`;
+      reader.panel.style.width = `${readerWidth}px`;
+      reader.panel.style.height = `${readerHeight}px`;
       const inside = readerDocument();
       const actions = $('.reader-actions');
       $('.reader-options').style.setProperty(

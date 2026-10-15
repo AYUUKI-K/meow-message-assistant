@@ -744,6 +744,26 @@ input {
   color: var(--muted);
   text-align: center;
 }
+.wrap:not(.mobile) .panel {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 12px 40px var(--shadow);
+}
+.wrap:not(.mobile) .panel h2 { font-size: 16px; }
+.wrap:not(.mobile) .panel-main { margin: 16px auto 0; padding: 0; }
+.wrap:not(.mobile) .panel-emblem { width: 56px; height: 56px; margin-bottom: 16px; }
+.wrap:not(.mobile) .panel-emblem svg { width: 48px; height: 48px; }
+.wrap:not(.mobile) .panel form > label { margin-bottom: 8px; }
+.wrap:not(.mobile) .panel .row input { height: 48px; font-size: 18px; padding: 0 12px; border-radius: 12px; }
+.wrap:not(.mobile) .panel .go { height: 48px; min-width: 64px; font-size: 14px; border-radius: 12px; }
+.wrap:not(.mobile) .panel-edges { gap: 8px; margin: 12px 0; }
+.wrap:not(.mobile) .panel-edges button { min-height: 44px; padding: 8px; font-size: 13px; }
+.wrap:not(.mobile) .panel-actions { grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0; }
+.wrap:not(.mobile) .panel-actions button { min-height: 44px; }
+.wrap:not(.mobile) .panel-actions .view-archive { grid-column: 1 / -1; }
+.wrap:not(.mobile) .panel .return { height: 44px; }
+.wrap:not(.mobile) .reader { border: 1px solid var(--line); border-radius: 18px; }
 .wrap.mobile .rail {
   width: 48px;
   padding: 2px;
