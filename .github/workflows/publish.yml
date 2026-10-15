@@ -1,0 +1,49 @@
+name: Build and publish assistant
+
+on:
+  push:
+    branches: [main]
+    paths: ['**.ts', '**.css', 'build.mjs', 'package.json', 'package-lock.json', '.github/workflows/publish.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-assistant
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Checkout published files
+        uses: actions/checkout@v4
+        with:
+          ref: release
+          path: .release
+      - name: Build JSON and fingerprinted script
+        run: npm run build
+        env:
+          MEOW_RELEASE_DIR: .release
+      - name: Publish
+        working-directory: .release
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- '*.js' '*.json'
+          if git diff --cached --quiet; then
+            echo 'No release changes'
+          else
+            git commit -m 'Publish assistant from ${{ github.sha }}'
+            git push origin HEAD:release
+          fi
+      - name: Refresh manifest mirrors
+        run: |
+          curl --fail --retry 2 --max-time 30 "https://purge.jsdelivr.net/gh/${{ github.repository }}@release/latest.json" || echo 'CDN cache refresh deferred; raw GitHub manifest remains available'

@@ -1,0 +1,54 @@
+# 喵喵消息助手 v2.6.0
+
+## 安装和在线更新
+
+[下载在线更新版 JSON](https://raw.githubusercontent.com/AYUUKI-K/meow-message-assistant/release/meow-assistant.json)，在酒馆助手的脚本库中导入并启用。更新旧版时请覆盖原脚本，避免同时启用多个版本。
+
+每次刷新酒馆或重新启用脚本时，加载器会读取 `release/latest.json`，再从 jsDelivr 加载最新的完整脚本。网络失败时会尝试备用地址。正在阅读时不会轮询更新或强制重启。
+
+如果需要不联网检查更新的版本，可以下载 [离线完整版 JSON](https://raw.githubusercontent.com/AYUUKI-K/meow-message-assistant/release/meow-offline.json)。在线版与离线版使用相同脚本 ID，使用其中一个即可。
+
+向 `main` 推送 TS/CSS 源码后，GitHub Actions 会自动构建并发布到 `release` 分支。只有构建成功才发布。完整脚本使用内容指纹作为文件名，避免旧脚本缓存；发布清单优先从 GitHub 读取，并刷新 CDN 清单缓存。
+
+本目录是喵喵消息助手的源码维护入口，2.5.1–2.5.3 的修复保存在这里的 TypeScript 和 CSS 文件中。入口在扩展菜单的“喵喵回复目录”，主助手使用可拖动的猫咪悬浮按钮。
+
+## 构建与使用
+
+首次在本目录运行 `pnpm install`，以后修改源码后运行 `pnpm build`。
+构建从本目录的 `index.ts` 打包 TypeScript，并把 CSS 内嵌到完整脚本中；`online-loader.ts` 编译成在线加载器，输出到本目录上一级的 `喵喵消息助手-酒馆助手导入.json`。
+
+在酒馆助手脚本库中导入该 JSON，再启用脚本。完整代码、样式和 SVG 由加载器在线取得，源码文件仅供维护。
+
+功能修改保存在本目录的 TypeScript/CSS 中，运行时版本号保存在 `version.ts` 中。使用流程为：修改源码 → `pnpm build` → 导入 JSON。
+
+2.5.4 选用 03「来信喵」SVG，悬浮按钮与全屏页使用同一个图标。沿用 2.5.3 的侧边收纳、上下速回和历史消息交互。
+
+## 文件
+
+- `index.ts`：脚本启动入口。
+- `online-loader.ts`：在线更新入口，每次启用时获取最新发布清单。
+- `build.mjs` / `.github/workflows/publish.yml`：构建、JSON 封装和 GitHub 自动发布。
+- `version.ts`：运行时版本号。
+- `assistant.ts`：楼层导航、浮动面板、全屏阅读器、事件和清理流程。
+- `ui.ts` / `assistant.css`：Shadow DOM 界面结构和隔离样式。
+- `cat-icons.ts`：当前猫咪 SVG 与 6 款候选图标；`ui.ts` 从这里导入图标。
+- `design/猫猫图标方案.html`：可独立打开的图标选型预览，支持日夜对照、侧栏收纳演示和 SVG 下载。
+- `message-access.ts`：只读读取聊天消息与 Swipe 数据及缓存。
+- `message-renderer.ts`：酒馆显示正则、Markdown、HTML 文档隔离渲染和正文提取。
+- `html-document.ts`：HTML 状态栏交互、独立 iframe、动态高度及清理流程。
+- `archive.ts`：多版本回复目录的数据收集、分页和搜索结果绘制。
+- `positioning.ts`：当前楼层定位和可视视口适配。
+
+脚本只读取消息，不切换或修改当前 Swipe，也不会批量加载未显示的聊天楼层。启用前请停用已有的喵喵助手旧版和独立 Swipe 脚本，避免重复悬浮控件或重复菜单入口。
+
+手机收起状态只显示屏幕边缘的一条触控线，透明点击区域覆盖整个侧边控件高度；展开后触控线移到按钮条内侧，不遮挡猫咪与上下按钮。打开面板时整个侧边控件隐藏，关闭后恢复收起状态。
+
+HTML 代码块保留内部脚本、点击事件及原生折叠控件，在独立 iframe 中运行。折叠和展开时自动更新高度，切换楼层或关闭查看器时销毁页面。状态栏的存储仅在当前页面内保留，不提供酒馆聊天操作接口。
+
+## 2.5.1–2.5.3 修复位置
+
+- 2.5.1：`assistant.css` 中的触控区覆盖侧边控件整个高度，通用按下缩放排除 `.dock-handle`；`assistant.ts`
+  中捕获触控指针，避免按下后点击目标变化。
+- 2.5.2：`html-document.ts`
+  实现独立 HTML 文档及其内部折叠交互、动态高度和清理；`message-renderer.ts`、`assistant.ts`、`ui.ts` 接入该渲染器。
+- 2.5.3：`assistant.ts` 的返回导航在完成后移除“已返回 x 楼”提示，`version.ts` 维护版本号。
