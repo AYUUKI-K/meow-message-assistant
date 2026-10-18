@@ -3,6 +3,8 @@ import { createMessageAccess } from './message-access';
 import { createMessageRenderer } from './message-renderer';
 import { contentTop as getContentTop, findCurrentFloor, viewportBounds } from './positioning';
 import { createAssistantUi } from './ui';
+import { createAutoReader } from './auto-reader';
+import { bindDockDrag } from './dock-drag';
 
 const KEY = '__birdFloorNavigator_v1__';
 const POSITION_KEY = 'bird-floor-position-v1';
@@ -42,8 +44,6 @@ export function startAssistant(): void {
   let identity = '';
   let highlighted = null;
   let highlightTimer = 0;
-  let dragging = null;
-  let suppressClick = false;
   let position = null;
   try {
     position = JSON.parse(page.localStorage.getItem(POSITION_KEY));
@@ -88,7 +88,39 @@ export function startAssistant(): void {
       return null;
     }
   };
+  let continueReading = false;
+  const autoReader = createAutoReader({
+    page,
+    target: () => {
+      if (disposed || archiveMode || !ui.panel.hidden) return null;
+      return readerState ? readerDocument()?.scrollingElement as HTMLElement ?? null : chat;
+    },
+    onEnd: async () => {
+      if (!continueReading || !readerState || archiveMode || busy || disposed || readerState.id >= lastId()) return false;
+      const nextId = readerState.id + 1;
+      return new Promise<boolean>(resolve => {
+        const finish = (ok: boolean) => {
+          page.clearTimeout(timeout);
+          reader.frame.removeEventListener('load', loaded);
+          resolve(ok && !disposed && readerState?.id === nextId);
+        };
+        const loaded = () => page.setTimeout(() => finish(true), 0);
+        const timeout = page.setTimeout(() => finish(false), 5000);
+        reader.frame.addEventListener('load', loaded);
+        goTo(nextId, generation, true, 0, { focus: false }).catch(() => finish(false));
+      });
+    },
+    onChange: (running, speed) => {
+      shadow.querySelectorAll<HTMLButtonElement>('.auto-toggle').forEach(button => {
+        button.textContent = running ? '暂停阅读' : '自动阅读';
+        button.setAttribute('aria-pressed', String(running));
+      });
+      shadow.querySelectorAll<HTMLSelectElement>('.auto-speed').forEach(select => select.value = String(speed));
+      $('.auto-float').hidden = !running || !reader.panel.hidden;
+    },
+  });
   const hideReader = () => {
+    autoReader.pause();
     messageRenderer.unmountDocuments();
     readerState = null;
     archiveMode = false;
@@ -218,6 +250,7 @@ export function startAssistant(): void {
     }
   };
   const togglePanel = () => {
+    autoReader.pause();
     if (!ui.panel.hidden) {
       closePanel(true);
       return;
@@ -315,7 +348,8 @@ export function startAssistant(): void {
   }
   const persistPosition = () => {
     const r = host.getBoundingClientRect();
-    position = { x: r.left / page.innerWidth, y: r.top / page.innerHeight };
+    const bounds = viewportBounds(page);
+    position = { x: (r.left - bounds.x) / bounds.width, y: (r.top - bounds.y) / bounds.height };
     try {
       page.localStorage.setItem(POSITION_KEY, JSON.stringify(position));
     } catch (_) {
@@ -434,6 +468,7 @@ export function startAssistant(): void {
     archive.panel.hidden = true;
     reader.frame.hidden = false;
     $('.reader-swipes').hidden = $('.reader-actions').hidden = false;
+    $('.reader-auto').hidden = false;
     reader.panel.hidden = reader.mask.hidden = false;
     reader.title.textContent = `第 ${id} 楼${message.name ? ` · ${message.name}` : ''}`;
     reader.frame.onload = () => {
@@ -444,6 +479,7 @@ export function startAssistant(): void {
       messageRenderer.mountDocuments(inside, {
         onInteraction: () => {
           reader.settings.open = false;
+          autoReader.pause();
         },
         onEscape: () => {
           if (reader.settings.open) closeSettings();
@@ -451,6 +487,11 @@ export function startAssistant(): void {
         },
       });
       inside.scrollingElement.scrollTop = offset;
+      inside.addEventListener('pointerdown', autoReader.pause, { passive: true });
+      inside.addEventListener('wheel', autoReader.pause, { passive: true });
+      inside.addEventListener('keydown', event => {
+        if ([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) autoReader.pause();
+      });
       // 在阅读窗口内点击链接不会替换消息，避免丢失返回锚点。
       inside.addEventListener('click', event => {
         reader.settings.open = false;
@@ -576,14 +617,7 @@ export function startAssistant(): void {
     update();
   };
   listen(ui.bird, 'click', () => {
-    if (suppressClick) {
-      suppressClick = false;
-      return;
-    }
     togglePanel();
-  });
-  listen(ui.dockHandle, 'pointerdown', event => {
-    if (event.isPrimary && event.button === 0) ui.dockHandle.setPointerCapture(event.pointerId);
   });
   listen(ui.dockHandle, 'click', () => {
     if (!ui.panel.hidden) return;
@@ -707,6 +741,8 @@ export function startAssistant(): void {
   };
   const openArchive = () => {
     if (busy) return;
+    autoReader.pause();
+    $('.reader-auto').hidden = true;
     update();
     archiveRows = collectArchiveRows(context()?.chat, page, lastId());
     if (!readerState && !archiveMode) saveHistory(snapshot());
@@ -785,9 +821,44 @@ export function startAssistant(): void {
   listen(doc, 'pointerdown', event => {
     const path = event.composedPath();
     if (reader.settings.open && !path.includes(reader.settings)) reader.settings.open = false;
-    if (!ui.panel.hidden && !path.includes(host)) closePanel();
+    if (!path.includes(host)) {
+      if (!ui.panel.hidden) closePanel();
+      if (ui.wrap.classList.contains('rail-expanded')) {
+        ui.wrap.classList.remove('rail-expanded');
+        place();
+      }
+    }
+    if (!path.some(el => el instanceof page.Element && (el.classList.contains('auto-controls') || el.classList.contains('auto-float')))) autoReader.pause();
+  }, { capture: true, passive: true });
+  listen(doc, 'wheel', autoReader.pause, { passive: true });
+  listen(doc, 'visibilitychange', () => { if (doc.hidden) autoReader.pause(); });
+  listen(page, 'blur', () => {
+    autoReader.pause();
+    page.setTimeout(() => {
+      if (doc.activeElement?.tagName === 'IFRAME' && !host.contains(doc.activeElement)) {
+        ui.wrap.classList.remove('rail-expanded');
+        requestPlace();
+      }
+    }, 0);
   });
+  shadow.querySelectorAll('.auto-toggle').forEach(button => listen(button, 'click', () => {
+    if (autoReader.running) { autoReader.pause(); return; }
+    if (archiveMode) return;
+    closePanel();
+    autoReader.start();
+  }));
+  shadow.querySelectorAll('.auto-speed').forEach(select => {
+    (select as HTMLSelectElement).value = String(autoReader.speed);
+    listen(select, 'change', () => autoReader.setSpeed(Number((select as HTMLSelectElement).value)));
+  });
+  shadow.querySelectorAll('.auto-continue').forEach(input => listen(input, 'change', () => {
+    continueReading = (input as HTMLInputElement).checked;
+    shadow.querySelectorAll<HTMLInputElement>('.auto-continue').forEach(other => other.checked = continueReading);
+  }));
+  listen($('.auto-float'), 'click', autoReader.pause);
   listen(doc, 'keydown', event => {
+    if (event.key === 'Escape' || ([' ', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key) &&
+      !event.composedPath().some(el => el instanceof page.Element && el.classList.contains('auto-controls')))) autoReader.pause();
     if (event.key === 'Tab' && !ui.panel.hidden) {
       const controls = [...ui.panel.querySelectorAll('button:not(:disabled),input:not(:disabled)')].filter(
         el => el.getClientRects().length,
@@ -816,34 +887,16 @@ export function startAssistant(): void {
       }
     }
   });
-  listen(ui.bird, 'pointerdown', event => {
-    if (event.button !== 0 || busy || ui.wrap.classList.contains('compact')) return;
-    suppressClick = false;
-    const r = host.getBoundingClientRect();
-    dragging = { id: event.pointerId, x: event.clientX, y: event.clientY, left: r.left, top: r.top, moved: false };
-    ui.bird.setPointerCapture(event.pointerId);
-  });
-  listen(ui.bird, 'pointermove', event => {
-    if (!dragging || event.pointerId !== dragging.id) return;
-    const dx = event.clientX - dragging.x,
-      dy = event.clientY - dragging.y;
-    if (!dragging.moved && Math.hypot(dx, dy) < 7) return;
-    dragging.moved = true;
-    closePanel();
-    position = { x: (dragging.left + dx) / page.innerWidth, y: (dragging.top + dy) / page.innerHeight };
-    requestPlace();
-  });
-  const endDrag = event => {
-    if (!dragging || event.pointerId !== dragging.id) return;
-    suppressClick = dragging.moved;
-    if (dragging.moved) {
-      place();
-      persistPosition();
-    }
-    dragging = null;
-  };
-  listen(ui.bird, 'pointerup', endDrag);
-  listen(ui.bird, 'pointercancel', endDrag);
+  cleanups.push(bindDockDrag({
+    controls: [ui.bird, ui.dockHandle], host,
+    enabled: () => !busy && ui.panel.hidden && reader.panel.hidden,
+    onMove: (dx, dy, origin) => {
+      const bounds = viewportBounds(page);
+      position = { x: (origin.left + dx - bounds.x) / bounds.width, y: (origin.top + dy - bounds.y) / bounds.height };
+      requestPlace();
+    },
+    onEnd: () => { place(); persistPosition(); },
+  }));
   listen(page, 'resize', () => {
     requestPlace();
     schedule();
@@ -936,6 +989,7 @@ export function startAssistant(): void {
   const destroy = () => {
     if (disposed) return;
     disposed = true;
+    autoReader.pause();
     generation++;
     reader.frame.onload = null;
     hideReader();

@@ -66,7 +66,7 @@ svg {
   appearance: none;
   background: transparent;
   transform: none;
-  touch-action: manipulation;
+  touch-action: none;
 }
 .dock-handle::before {
   content: '';
@@ -744,6 +744,16 @@ input {
   color: var(--muted);
   text-align: center;
 }
+.version { color: var(--muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.auto-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.auto-controls button,.auto-controls select { min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--control); color: var(--ink); font-size: 13px; }
+.auto-controls button[aria-pressed="true"] { background: var(--accent); border-color: var(--primary); }
+.auto-controls .auto-next { display: flex; align-items: center; gap: 6px; min-height: 44px; margin: 0; font-size: 12px; }
+.auto-next input { flex: none; width: 18px; height: 18px; margin: 0; padding: 0; }
+.reader-auto { flex: none; padding: 0 12px 6px; border-bottom: 1px solid var(--line); }
+.reader-auto .auto-controls { margin-top: 4px; }
+.auto-float { position: fixed; z-index: 8; left: max(12px, env(safe-area-inset-left)); bottom: max(12px, env(safe-area-inset-bottom)); min-height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); color: var(--ink); box-shadow: 0 4px 20px var(--shadow); font-size: 13px; }
+.bird,.dock-handle { -webkit-touch-callout: none; user-select: none; }
 .wrap:not(.mobile) .panel {
   padding: 20px;
   border: 1px solid var(--line);
