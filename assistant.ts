@@ -1,4 +1,4 @@
-import { collectArchiveRows, renderArchivePage } from './archive';
+import { collectArchiveRows, messagePreview, renderArchivePage, renderBookmarkPage } from './archive';
 import { createMessageAccess } from './message-access';
 import { createMessageRenderer } from './message-renderer';
 import { contentTop as getContentTop, findCurrentFloor, viewportBounds } from './positioning';
@@ -33,8 +33,10 @@ export function startAssistant(): void {
   let generating = false;
   let refreshTimer = 0;
   let archiveMode = false;
+  let collectionMode = 'replies';
   let archivePage = 0;
   let archiveRows = [];
+  let bookmarkRows = [];
   let searchTimer = 0;
   const renderCache = new Map();
   let renderPipeline = [];
@@ -42,6 +44,8 @@ export function startAssistant(): void {
   let chat = null;
   let messages = [];
   let identity = '';
+  let bookmarkedIds = new Map<number, string>();
+  let bookmarkTitleFloor: number | null = null;
   let highlighted = null;
   let highlightTimer = 0;
   let position = null;
@@ -79,6 +83,35 @@ export function startAssistant(): void {
     }
   };
   const chatKey = ctx => (ctx ? `${ctx.characterId ?? ''}|${ctx.groupId ?? ''}|${ctx.getCurrentChatId?.() ?? ''}` : '');
+  const bookmarkStorageKey = key => `meow-message-bookmarks-v1:${key}`;
+  const loadBookmarks = key => {
+    try {
+      const stored = JSON.parse(page.localStorage.getItem(bookmarkStorageKey(key)) || '[]');
+      const entries = Array.isArray(stored)
+        ? stored.filter(id => Number.isSafeInteger(id) && id >= 0).map(id => [id, ''])
+        : Object.entries(stored ?? {}).flatMap(([rawId, title]) => {
+            const id = Number(rawId);
+            return Number.isSafeInteger(id) && id >= 0 ? [[id, typeof title === 'string' ? title : '']] : [];
+          });
+      bookmarkedIds = new Map(entries);
+    } catch (_) {
+      bookmarkedIds = new Map();
+    }
+  };
+  const saveBookmarks = () => {
+    try {
+      page.localStorage.setItem(bookmarkStorageKey(identity), JSON.stringify(Object.fromEntries(bookmarkedIds)));
+    } catch (_) {
+      /* 存储不可用时，收藏仍在当前页面会话内有效 */
+    }
+  };
+  const isBookmarked = id => bookmarkedIds.has(id);
+  const getBookmarkTitle = id => bookmarkedIds.get(id) ?? '';
+  const findNeighborId = (from, delta) => {
+    for (let id = from + delta; id >= 0 && id <= lastId(); id += delta)
+      if (!reader.skipBookmarks.checked || !isBookmarked(id)) return id;
+    return null;
+  };
   const floorId = el => Number(el.getAttribute('mesid'));
   const floorElement = id => chat?.querySelector(`.mes[mesid="${id}"]`);
   const readerDocument = () => {
@@ -96,8 +129,9 @@ export function startAssistant(): void {
       return readerState ? readerDocument()?.scrollingElement as HTMLElement ?? null : chat;
     },
     onEnd: async () => {
-      if (!continueReading || !readerState || archiveMode || busy || disposed || readerState.id >= lastId()) return false;
-      const nextId = readerState.id + 1;
+      if (!continueReading || !readerState || archiveMode || busy || disposed) return false;
+      const nextId = findNeighborId(readerState.id, 1);
+      if (nextId === null) return false;
       return new Promise<boolean>(resolve => {
         const finish = (ok: boolean) => {
           page.clearTimeout(timeout);
@@ -152,12 +186,43 @@ export function startAssistant(): void {
     }
     return messages.reduce((max, el) => Math.max(max, floorId(el)), -1);
   };
+  const updateMessageBookmarkButton = (button, id) => {
+    const saved = isBookmarked(id);
+    button.classList.toggle('fa-solid', saved);
+    button.classList.toggle('fa-regular', !saved);
+    button.classList.toggle('meow-bookmarked', saved);
+    button.style.color = saved ? 'var(--SmartThemeQuoteColor, #d8a13b)' : '';
+    button.title = saved ? '取消收藏' : '收藏此楼';
+    button.setAttribute('aria-label', button.title);
+    button.setAttribute('aria-pressed', String(saved));
+  };
+  const syncMessageBookmarkButton = message => {
+    const menu = message?.querySelector('.extraMesButtons');
+    const id = Number(message?.getAttribute('mesid'));
+    if (!menu || !Number.isSafeInteger(id) || id < 0) return;
+    let button = menu.querySelector('.meow-message-bookmark-action');
+    if (!button) {
+      button = doc.createElement('div');
+      button.className = 'mes_button meow-message-bookmark-action fa-regular fa-bookmark';
+      button.setAttribute('role', 'button');
+      button.setAttribute('tabindex', '0');
+      menu.prepend(button);
+    }
+    updateMessageBookmarkButton(button, id);
+  };
+  const syncMessageBookmarkButtons = (root = chat) => {
+    if (!root) return;
+    if (root.matches?.('.mes[mesid]')) syncMessageBookmarkButton(root);
+    root.querySelectorAll('.mes[mesid]').forEach(syncMessageBookmarkButton);
+  };
   const update = () => {
     if (disposed) return;
     const ctx = context(),
       nextKey = chatKey(ctx);
     if (nextKey !== identity) {
       identity = nextKey;
+      loadBookmarks(identity);
+      syncMessageBookmarkButtons();
       history = [];
       generation++;
       messageAccess.clear();
@@ -185,11 +250,25 @@ export function startAssistant(): void {
         busy || archiveMode || !(el || readerState);
     ui.go.disabled = busy || last < 0;
     ui.view.disabled = ui.swipes.disabled = busy || last < 0;
+    ui.viewBookmarks.disabled = busy || last < 0;
     ui.back.disabled = ui.return.disabled = busy || !history.length;
     setText(ui.return.querySelector('span'), history.length ? `返回 ${history.at(-1).id} 楼` : '返回');
     if (ui.panel.getAttribute('aria-busy') !== String(busy)) ui.panel.setAttribute('aria-busy', String(busy));
-    reader.previous.disabled = busy || archiveMode || !readerState || readerState.id <= 0;
-    reader.next.disabled = busy || archiveMode || !readerState || readerState.id >= last;
+    reader.previous.disabled = busy || archiveMode || !readerState || findNeighborId(readerState.id, -1) === null;
+    reader.next.disabled = busy || archiveMode || !readerState || findNeighborId(readerState.id, 1) === null;
+    reader.bookmark.disabled = busy || archiveMode || !readerState;
+    reader.bookmark.setAttribute('aria-pressed', String(!!readerState && isBookmarked(readerState.id)));
+    reader.bookmark.textContent = readerState && isBookmarked(readerState.id) ? '★ 已收藏' : '☆ 收藏';
+    reader.bookmarkTitle.disabled = busy || archiveMode || !readerState;
+    reader.bookmarks.disabled = busy || archiveMode || !readerState;
+    const titleFloor = readerState?.id ?? null;
+    if (titleFloor !== bookmarkTitleFloor) {
+      bookmarkTitleFloor = titleFloor;
+      reader.bookmarkTitle.value = titleFloor === null ? '' : getBookmarkTitle(titleFloor);
+    } else if (readerState && shadow.activeElement !== reader.bookmarkTitle) {
+      const savedTitle = isBookmarked(readerState.id) ? getBookmarkTitle(readerState.id) : '';
+      if (reader.bookmarkTitle.value !== savedTitle) reader.bookmarkTitle.value = savedTitle;
+    }
     updateSwipeControls();
   };
   const schedule = () => {
@@ -206,6 +285,7 @@ export function startAssistant(): void {
       });
   };
   const scan = () => {
+    syncMessageBookmarkButton(floorElement(lastId()));
     scanPending = true;
     schedule();
   };
@@ -643,9 +723,8 @@ export function startAssistant(): void {
   const readerNeighbor = delta =>
     runNavigation(async token => {
       if (!readerState) return;
-      const before = snapshot(),
-        id = readerState.id + delta;
-      if (id < 0 || id > lastId()) return;
+      const before = snapshot(), id = findNeighborId(readerState.id, delta);
+      if (id === null) return;
       await goTo(id, token, true);
       saveHistory(before);
     });
@@ -669,8 +748,43 @@ export function startAssistant(): void {
       if (readerState && !archiveMode)
         await goTo(readerState.id, token, true, readerDocument()?.scrollingElement?.scrollTop ?? 0);
     });
-  for (const field of [reader.ignoreDepth, reader.bodyOnly, reader.start, reader.end])
+  for (const field of [reader.ignoreDepth, reader.bodyOnly, reader.skipBookmarks, reader.start, reader.end])
     listen(field, 'change', changeReaderSettings);
+  listen(reader.bookmark, 'click', () => {
+    if (!readerState || archiveMode) return;
+    const id = readerState.id;
+    if (isBookmarked(id)) bookmarkedIds.delete(id);
+    else bookmarkedIds.set(id, reader.bookmarkTitle.value.trim());
+    saveBookmarks();
+    syncMessageBookmarkButton(floorElement(id));
+    update();
+  });
+  listen(reader.bookmarkTitle, 'input', () => {
+    if (!readerState || !isBookmarked(readerState.id)) return;
+    bookmarkedIds.set(readerState.id, reader.bookmarkTitle.value.trim());
+    saveBookmarks();
+  });
+  listen(doc, 'click', event => {
+    const action = event.target?.closest?.('.meow-message-bookmark-action');
+    if (!action || !chat?.contains(action)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const message = action.closest('.mes[mesid]');
+    const id = Number(message?.getAttribute('mesid'));
+    if (!Number.isSafeInteger(id) || id < 0) return;
+    if (isBookmarked(id)) bookmarkedIds.delete(id);
+    else bookmarkedIds.set(id, '');
+    saveBookmarks();
+    updateMessageBookmarkButton(action, id);
+    update();
+    showStatus(isBookmarked(id) ? `已收藏第 ${id} 楼，可在喵喵助手的收藏夹中添加备注。` : `已取消第 ${id} 楼的收藏。`);
+  });
+  listen(doc, 'keydown', event => {
+    const action = event.target?.closest?.('.meow-message-bookmark-action');
+    if (!action || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault();
+    action.click();
+  });
   const chooseSwipe = value =>
     runNavigation(async token => {
       if (!readerState || archiveMode) return;
@@ -736,15 +850,47 @@ export function startAssistant(): void {
   listen(ui.swipes, 'click', () => openMessage(true));
   listen(reader.latest, 'click', () => openMessage(false, true));
   const renderArchive = () => {
-    const result = renderArchivePage(doc, archive, archiveRows, archivePage, archive.search.value);
+    const result = collectionMode === 'bookmarks'
+      ? renderBookmarkPage(doc, archive, bookmarkRows, archivePage, archive.search.value)
+      : renderArchivePage(
+          doc,
+          archive,
+          archiveRows,
+          archivePage,
+          archive.search.value,
+          archive.hideBookmarks.checked,
+          isBookmarked,
+        );
     archivePage = result.page;
   };
-  const openArchive = () => {
+  const openCollection = mode => {
     if (busy) return;
     autoReader.pause();
     $('.reader-auto').hidden = true;
     update();
-    archiveRows = collectArchiveRows(context()?.chat, page, lastId());
+    collectionMode = mode;
+    if (mode === 'bookmarks') {
+      bookmarkRows = [...bookmarkedIds.entries()].sort(([a], [b]) => a - b).map(([id, title]) => {
+        try {
+          const message = readMessage(id);
+          const text = String(message.swipes?.[message.swipe_id] ?? message.mes ?? '');
+          return {
+            id,
+            title,
+            role: message.is_user ? '用户' : message.is_system || message.extra?.type === 'narrator' ? '系统' : '助手',
+            preview: messagePreview(text),
+          };
+        } catch (_) {
+          return { id, title, role: '消息暂不可读', preview: '' };
+        }
+      });
+      archive.hideBookmarks.closest('label').hidden = true;
+      archive.search.placeholder = '搜索备注标题、楼层或内容';
+    } else {
+      archiveRows = collectArchiveRows(context()?.chat, page, lastId());
+      archive.hideBookmarks.closest('label').hidden = false;
+      archive.search.placeholder = '搜索楼层、角色或内容';
+    }
     if (!readerState && !archiveMode) saveHistory(snapshot());
     archiveMode = true;
     archivePage = 0;
@@ -753,21 +899,29 @@ export function startAssistant(): void {
     archive.panel.hidden = false;
     reader.frame.hidden = true;
     $('.reader-swipes').hidden = $('.reader-actions').hidden = true;
-    reader.title.textContent = '回复目录';
+    reader.title.textContent = mode === 'bookmarks' ? '收藏夹' : '回复目录';
     closePanel();
     renderArchive();
     update();
     place();
     archive.search.focus({ preventScroll: true });
   };
+  const openArchive = () => openCollection('replies');
+  const openBookmarks = () => openCollection('bookmarks');
   listen($('.view-archive'), 'click', openArchive);
   listen($('.reader-archive'), 'click', openArchive);
+  listen(reader.bookmarks, 'click', openBookmarks);
+  listen(ui.viewBookmarks, 'click', openBookmarks);
   listen(archive.search, 'input', () => {
     page.clearTimeout(searchTimer);
     searchTimer = page.setTimeout(() => {
       archivePage = 0;
       renderArchive();
     }, 150);
+  });
+  listen(archive.hideBookmarks, 'change', () => {
+    archivePage = 0;
+    renderArchive();
   });
   listen(archive.previous, 'click', () => {
     archivePage--;
@@ -920,7 +1074,12 @@ export function startAssistant(): void {
     hideReader();
     if (chat) {
       chat.addEventListener('scroll', schedule, { passive: true });
-      chatObserver = new page.MutationObserver(scan);
+      chatObserver = new page.MutationObserver(records => {
+        for (const record of records)
+          for (const node of record.addedNodes)
+            if (node.nodeType === 1) syncMessageBookmarkButtons(node);
+        scan();
+      });
       chatObserver.observe(chat, { childList: true });
     }
     scan();
