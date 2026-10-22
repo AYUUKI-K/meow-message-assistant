@@ -14,11 +14,13 @@ export function createAutoReader({ page, target, onEnd, onChange }: AutoReaderOp
     if ([16, 24, 40, 64].includes(saved)) speed = saved;
   } catch (_) { /* 可选偏好 */ }
   const pause = () => {
+    const wasActive = running || frame !== 0;
     running = false;
     generation++;
     page.cancelAnimationFrame(frame);
     frame = previous = fraction = 0;
-    onChange(running, speed);
+    lastTarget = null;
+    if (wasActive) onChange(running, speed);
   };
   const tick = async (time: number) => {
     frame = 0;

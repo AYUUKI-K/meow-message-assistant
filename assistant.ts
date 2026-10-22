@@ -1044,6 +1044,8 @@ export function startAssistant(): void {
   cleanups.push(bindDockDrag({
     controls: [ui.bird, ui.dockHandle], host,
     enabled: () => !busy && ui.panel.hidden && reader.panel.hidden,
+    verticalOnly: () => viewportBounds(page).width <= 600,
+    touchHoldMs: control => control === ui.dockHandle && viewportBounds(page).width <= 600 ? 180 : 0,
     onMove: (dx, dy, origin) => {
       const bounds = viewportBounds(page);
       position = { x: (origin.left + dx - bounds.x) / bounds.width, y: (origin.top + dy - bounds.y) / bounds.height };
@@ -1165,13 +1167,16 @@ export function startAssistant(): void {
     chat?.removeEventListener('scroll', schedule);
     chatObserver?.disconnect();
     cleanups.forEach(fn => fn());
+    doc.querySelectorAll('.meow-message-bookmark-action').forEach(button => button.remove());
     host.remove();
     if (page[KEY]?.destroy === destroy) delete page[KEY];
   };
   page[KEY] = { destroy };
   listen(window, 'pagehide', destroy, { once: true });
-  bindChat();
   identity = chatKey(context());
+  loadBookmarks(identity);
+  bindChat();
+  syncMessageBookmarkButtons();
   update();
   place();
 }
