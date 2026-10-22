@@ -23,7 +23,7 @@ export function createAssistantUi(doc: Document): AssistantUi {
   shadow.innerHTML = `
       <style>${styles}</style>
       <div class="wrap">
-        <button class="dock-handle" type="button" aria-label="展开侧边按钮" aria-expanded="false" title="展开侧边按钮"></button>
+        <button class="dock-handle" type="button" aria-label="展开侧边按钮" aria-description="轻点展开，长按后上下拖动调整位置" aria-expanded="false" title="轻点展开，长按上下拖动"></button>
         <div class="rail" role="group" aria-label="喵喵消息助手">
           <button class="up" type="button" title="当前楼层顶部" aria-label="回到当前楼层顶部">${icon('<path d="m6 14 6-6 6 6"/><path d="M6 4h12"/>')}</button>
           <button class="bird" type="button" title="喵喵消息助手 · 拖动挪位置" aria-label="展开楼层跳转，亦可拖动调整位置" aria-expanded="false" aria-controls="bird-panel">${cat}</button>

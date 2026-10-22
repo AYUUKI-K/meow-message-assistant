@@ -11,6 +11,7 @@
     sans-serif;
   color: #304d47;
   color-scheme: light;
+  pointer-events: none;
 }
 *,
 *::before,
@@ -19,6 +20,9 @@
 }
 .wrap {
   position: relative;
+}
+.rail, .dock-handle, .panel, .reader, .reader-mask, .auto-float {
+  pointer-events: auto;
 }
 button,
 input {
@@ -54,18 +58,17 @@ svg {
   display: none;
   position: absolute;
   z-index: 5;
-  top: 0;
-  bottom: 0;
+  top: 50%;
   right: 0;
-  width: 28px;
-  height: auto;
+  width: 16px;
+  height: 72px;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   appearance: none;
   background: transparent;
-  transform: none;
+  transform: translateY(-50%);
   touch-action: none;
 }
 .dock-handle::before {
