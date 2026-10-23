@@ -944,11 +944,18 @@ export function startAssistant(): void {
   if (menu) {
     const item = doc.createElement('div');
     item.id = 'bird-message-history-menu';
-    item.className = 'extension_container interactable';
-    const button = doc.createElement('button');
-    button.type = 'button';
-    button.className = 'list-group-item flex-container flexGap5 interactable';
-    button.textContent = '喵喵回复目录';
+    item.className = 'extension_container';
+    const button = doc.createElement('div');
+    button.className = 'list-group-item flex-container flexGap5';
+    button.setAttribute('role', 'button');
+    button.tabIndex = 0;
+    button.setAttribute('aria-label', '打开喵喵回复目录');
+    const icon = doc.createElement('div');
+    icon.className = 'fa-fw fa-solid fa-list extensionsMenuExtensionButton';
+    icon.setAttribute('aria-hidden', 'true');
+    const label = doc.createElement('span');
+    label.textContent = '喵喵回复目录';
+    button.append(icon, label);
     item.appendChild(button);
     menu.appendChild(item);
     listen(button, 'click', openArchive);
