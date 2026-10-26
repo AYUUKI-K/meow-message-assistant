@@ -1,11 +1,11 @@
-/** 当前图标为 03「来信喵」。统一使用助手的日夜配色变量；其余方案仅供预览。 */
+/** 当前图标为 03「来信喵」。统一使用酒馆当前主题配色变量；其余方案仅供预览。 */
 const svg = (title: string, body: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img"><title>${title}</title><g stroke-linecap="round" stroke-linejoin="round">${body}</g></svg>`;
 
 export const CAT_ICON = /* @__PURE__ */ svg('来信喵', `
       <path d="M18 31V13q0-3 3-1l8 6h8l7-6q3-2 3 1v18" fill="var(--cat-face,#7296be)"/>
       <path d="m23 26 3 1 2-1m9 0 3 1 2-1" stroke="var(--cat-ear,#f1f6ff)" stroke-width="2"/>
       <path d="m31 30 2 1 2-1" stroke="var(--cat-ear,#f1f6ff)" stroke-width="1.8"/>
-      <rect x="9" y="33" width="46" height="23" rx="5" fill="var(--cat-ear,#f1f6ff)" stroke="var(--cat-line,#345577)" stroke-width="2"/>
+      <rect x="9" y="33" width="46" height="23" rx="5" fill="var(--cat-paper,var(--cat-ear,#f1f6ff))" stroke="var(--cat-line,#345577)" stroke-width="2"/>
       <path d="m10 36 18 12q4 3 8 0l18-12M11 53l13-10m29 10L40 43" stroke="var(--cat-line,#345577)" stroke-width="1.8"/>
       <path d="M21 33v5m23-5v5" stroke="var(--cat-face,#7296be)" stroke-width="6"/>
       <path d="m53 11 1.2 3.8L58 16l-3.8 1.2L53 21l-1.2-3.8L48 16l3.8-1.2Z" fill="var(--cat-face,#7296be)"/>

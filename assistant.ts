@@ -5,6 +5,7 @@ import { contentTop as getContentTop, findCurrentFloor, viewportBounds } from '.
 import { createAssistantUi } from './ui';
 import { createAutoReader } from './auto-reader';
 import { bindDockDrag } from './dock-drag';
+import { createNativeTheme } from './native-theme';
 
 const KEY = '__birdFloorNavigator_v1__';
 const POSITION_KEY = 'bird-floor-position-v1';
@@ -61,20 +62,19 @@ export function startAssistant(): void {
     target.addEventListener(type, fn, options);
     cleanups.push(() => target.removeEventListener(type, fn, options));
   };
-  const themeMedia = page.matchMedia('(prefers-color-scheme: dark)');
-  const applyTheme = () => {
-    host.dataset.theme = themeMedia.matches ? 'dark' : 'light';
+  const nativeTheme = createNativeTheme(page, host, () => {
     try {
       const inside = reader.frame.contentDocument;
       if (inside) {
-        inside.documentElement.dataset.theme = host.dataset.theme;
+        nativeTheme.syncReader(inside);
         messageRenderer.syncDocumentTheme(inside);
       }
     } catch (_) {
       /* 等待正文载入 */
     }
-  };
-  listen(themeMedia, 'change', applyTheme);
+  });
+  const applyTheme = nativeTheme.update;
+  cleanups.push(() => nativeTheme.destroy());
   const context = () => {
     try {
       return page.SillyTavern?.getContext?.() ?? (typeof SillyTavern !== 'undefined' ? SillyTavern : null);
@@ -555,7 +555,7 @@ export function startAssistant(): void {
       if (disposed || load !== readerLoad || !readerState) return;
       const inside = readerDocument();
       if (!inside) return;
-      inside.documentElement.dataset.theme = host.dataset.theme;
+      nativeTheme.syncReader(inside);
       messageRenderer.mountDocuments(inside, {
         onInteraction: () => {
           reader.settings.open = false;
@@ -585,7 +585,7 @@ export function startAssistant(): void {
         }
       });
     };
-    reader.frame.srcdoc = `<!doctype html><html data-theme="${host.dataset.theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data: blob:; style-src 'unsafe-inline' https: http:; font-src https: http: data:; script-src 'unsafe-inline' https: http: blob:; frame-src 'self' about: data: blob:; form-action 'none'; base-uri 'none'"><style>:root{--bg:#fff;--text:#263e59;--link:#386aab;--border:#c5d4e6;color-scheme:light}:root[data-theme="dark"]{--bg:#181b20;--text:#e4e7eb;--link:#b5c7df;--border:#464d58;color-scheme:dark}body{margin:0 auto;max-width:1100px;padding:20px;color:var(--text);background:var(--bg);font:16px/1.85 system-ui,-apple-system,'Microsoft YaHei',sans-serif;overflow-wrap:anywhere}img,svg,video{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}table{max-width:100%;display:block;overflow:auto}a{color:var(--link)}blockquote{margin:12px 0;padding-left:16px;border-left:3px solid var(--border)}*{box-sizing:border-box}@media(max-width:1199px){body{padding:20px}}@media(max-width:600px){body{padding:14px 16px;line-height:1.8}}</style></head>${body.outerHTML}</html>`;
+    reader.frame.srcdoc = `<!doctype html><html data-theme="${host.dataset.theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: http: data: blob:; style-src 'unsafe-inline' https: http:; font-src https: http: data:; script-src 'unsafe-inline' https: http: blob:; frame-src 'self' about: data: blob:; form-action 'none'; base-uri 'none'"><style>${nativeTheme.readerCss()}body{margin:0 auto;max-width:1100px;padding:20px;color:var(--text);background:var(--bg);font:16px/1.85 system-ui,-apple-system,'Microsoft YaHei',sans-serif;overflow-wrap:anywhere}img,svg,video{max-width:100%;height:auto}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}table{max-width:100%;display:block;overflow:auto}a{color:var(--link)}em{color:var(--em)}blockquote{margin:12px 0;padding-left:16px;border-left:3px solid var(--border)}*{box-sizing:border-box}@media(max-width:1199px){body{padding:20px}}@media(max-width:600px){body{padding:14px 16px;line-height:1.8}}</style></head>${body.outerHTML}</html>`;
     closePanel();
     ui.toast.hidden = true;
     if (options.focus !== false) reader.panel.focus({ preventScroll: true });

@@ -9,8 +9,8 @@
     -apple-system,
     'Microsoft YaHei',
     sans-serif;
-  color: #304d47;
-  color-scheme: light;
+  color: var(--ink, CanvasText);
+  color-scheme: inherit;
   pointer-events: none;
 }
 *,
@@ -52,7 +52,7 @@ svg {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 32px;
-  box-shadow: 0 6px 24px #233c3329;
+  box-shadow: 0 6px 24px var(--shadow);
 }
 .dock-handle {
   display: none;
@@ -272,7 +272,7 @@ input {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--surface);
-  box-shadow: 0 6px 24px #233c3329;
+  box-shadow: 0 6px 24px var(--shadow);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -291,11 +291,8 @@ input {
 .reader-mask {
   position: fixed;
   inset: 0;
-  background: #15202d66;
+  background: var(--shadow);
   z-index: 1;
-}
-:host([data-theme='dark']) .reader-mask {
-  background: #0009;
 }
 .reader {
   position: fixed;
@@ -365,42 +362,13 @@ input {
   flex: none;
   padding: 0;
   margin: 0;
-  accent-color: #39776c;
+  accent-color: var(--primary);
 }
 .reader-options input:disabled {
   opacity: 0.45;
 }
 .wrap {
-  --ink: #263e59;
-  --muted: #586f89;
-  --surface: #fff;
-  --control: #f7faff;
-  --line: #c5d4e6;
-  --accent: #e7eff9;
-  --primary: #386aab;
-  --on-primary: #fff;
-  --focus: #4b80c2;
-  --shadow: #17385d24;
-  --cat-face: #739ac0;
-  --cat-ear: #edf5ff;
-  --cat-line: #2d5275;
-  color: var(--ink);
-}
-:host([data-theme='dark']) .wrap {
-  --ink: #e4e7eb;
-  --muted: #a6adb7;
-  --surface: #181b20;
-  --control: #22262c;
-  --line: #464d58;
-  --accent: #303640;
-  --primary: #d1d7e0;
-  --on-primary: #1b1e23;
-  --focus: #adbdd2;
-  --shadow: #0007;
-  --cat-face: #a6b6cb;
-  --cat-ear: #222832;
-  --cat-line: #d1dbe6;
-  color-scheme: dark;
+  color: var(--ink, CanvasText);
 }
 .rail,
 .panel,
