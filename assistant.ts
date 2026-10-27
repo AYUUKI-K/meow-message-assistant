@@ -1,7 +1,7 @@
 import { collectArchiveRows, messagePreview, renderArchivePage, renderBookmarkPage } from './archive';
 import { createMessageAccess } from './message-access';
 import { createMessageRenderer } from './message-renderer';
-import { contentTop as getContentTop, findCurrentFloor, viewportBounds } from './positioning';
+import { contentTop as getContentTop, findCurrentFloor, viewportBounds, scrollMessageToTop } from './positioning';
 import { createAssistantUi } from './ui';
 import { createAutoReader } from './auto-reader';
 import { bindDockDrag } from './dock-drag';
@@ -1142,16 +1142,19 @@ export function startAssistant(): void {
     page,
     identity: () => chatKey(context()),
     enabled: () => !disposed && preferences.returnTop,
-    output: () => {
-      const id = nearestAssistant();
+    output: (requestedId?: number) => {
+      const id = requestedId ?? nearestAssistant();
       if (id === null) return null;
-      try { const message = readMessage(id); return { id, text: message.mes, swipe: message.swipe_id }; }
-      catch { return null; }
+      try {
+        const message = readMessage(id);
+        if (message.is_user || message.is_system || message.extra?.type === 'narrator') return null;
+        return { id, text: message.mes, swipe: message.swipe_id };
+      } catch { return null; }
     },
     returnTo: id => {
-      if (disposed || busy || archiveMode) return;
+      if (disposed || busy || archiveMode) return true;
       if (readerState) {
-        if (readerState.id !== id) return;
+        if (readerState.id !== id) return true;
         page.clearTimeout(refreshTimer);
         refreshTimer = 0;
         goTo(id, generation, true, 0, { focus: false }).catch(() => {});
@@ -1160,10 +1163,13 @@ export function startAssistant(): void {
         if (element?.getClientRects().length) {
           autoReader.pause();
           saveHistory(snapshot());
-          scrollTo(contentTop(element));
+          const scrolled = scrollMessageToTop(page, chat, element);
           update();
+          return scrolled;
         }
+        return false;
       }
+      return true;
     },
   });
   cleanups.push(() => generationReturn.cancel());
@@ -1207,6 +1213,14 @@ export function startAssistant(): void {
     }
   }
   if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
+    if (tavern_events.MESSAGE_RECEIVED) {
+      const sub = eventOn(tavern_events.MESSAGE_RECEIVED, (id, type) => generationReturn.received(id, type));
+      cleanups.push(() => sub.stop());
+    }
+    if (tavern_events.CHARACTER_MESSAGE_RENDERED) {
+      const sub = eventOn(tavern_events.CHARACTER_MESSAGE_RENDERED, id => generationReturn.rendered(id));
+      cleanups.push(() => sub.stop());
+    }
     const onChanged = eventOn(tavern_events.CHAT_CHANGED, () => {
       generationReturn.cancel();
       generation++;
@@ -1250,7 +1264,7 @@ export function startAssistant(): void {
       if (tavern_events[name]) {
         const sub = eventOn(tavern_events[name], () => {
           if (name === 'GENERATION_ENDED') generationReturn.complete();
-          else generationReturn.cancel();
+          else generationReturn.stop();
           generating = false;
           updateSwipeControls();
           scheduleRefresh();

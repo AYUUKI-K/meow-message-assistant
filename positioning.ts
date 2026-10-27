@@ -61,3 +61,14 @@ export function viewportBounds(page: Window & typeof globalThis) {
     height: visual?.height ?? page.innerHeight,
   };
 }
+
+/** Same document-offset calculation as the standalone message-received scroll script. */
+export function scrollMessageToTop(page: Window, chat: HTMLElement, message: HTMLElement): boolean {
+  if (!chat.isConnected || !message.isConnected || !message.getClientRects().length) return false;
+  const target = chat.scrollTop + message.getBoundingClientRect().top - chat.getBoundingClientRect().top - chat.clientTop;
+  const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
+  const jquery = (page as any).jQuery;
+  if (typeof jquery === 'function') jquery(chat).stop(true);
+  chat.scrollTo({ top: Math.max(0, Math.min(target, max)), behavior: page.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' as ScrollBehavior : 'smooth' });
+  return true;
+}
