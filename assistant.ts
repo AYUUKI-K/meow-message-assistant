@@ -6,6 +6,9 @@ import { createAssistantUi } from './ui';
 import { createAutoReader } from './auto-reader';
 import { bindDockDrag } from './dock-drag';
 import { createNativeTheme } from './native-theme';
+import { loadReadingPreferences, saveReadingPreferences, createUserMessageVisibility } from './reading-preferences';
+import { createGenerationReturn } from './generation-return';
+import { collectSearchRows, searchFloors, renderSearchPage, type SearchRow } from './floor-search';
 
 const KEY = '__birdFloorNavigator_v1__';
 const POSITION_KEY = 'bird-floor-position-v1';
@@ -38,6 +41,9 @@ export function startAssistant(): void {
   let archivePage = 0;
   let archiveRows = [];
   let bookmarkRows = [];
+  let searchRows: SearchRow[] = [];
+  let searchRequest = 0;
+  let searchCache: { key: string; rows: SearchRow[] } | null = null;
   let searchTimer = 0;
   const renderCache = new Map();
   let renderPipeline = [];
@@ -62,6 +68,11 @@ export function startAssistant(): void {
     target.addEventListener(type, fn, options);
     cleanups.push(() => target.removeEventListener(type, fn, options));
   };
+  const preferences = loadReadingPreferences(page);
+  const userVisibility = createUserMessageVisibility(doc);
+  cleanups.push(() => userVisibility.destroy());
+  shadow.querySelectorAll<HTMLInputElement>('.pref-hide-user').forEach(input => input.checked = preferences.hideUser);
+  shadow.querySelectorAll<HTMLInputElement>('.pref-return-top').forEach(input => input.checked = preferences.returnTop);
   const nativeTheme = createNativeTheme(page, host, () => {
     try {
       const inside = reader.frame.contentDocument;
@@ -109,11 +120,19 @@ export function startAssistant(): void {
   const getBookmarkTitle = id => bookmarkedIds.get(id) ?? '';
   const findNeighborId = (from, delta) => {
     for (let id = from + delta; id >= 0 && id <= lastId(); id += delta)
-      if (!reader.skipBookmarks.checked || !isBookmarked(id)) return id;
+      if (!isHiddenUser(id) && (!reader.skipBookmarks.checked || !isBookmarked(id))) return id;
     return null;
   };
   const floorId = el => Number(el.getAttribute('mesid'));
   const floorElement = id => chat?.querySelector(`.mes[mesid="${id}"]`);
+  const isHiddenUser = id => {
+    if (!preferences.hideUser) return false;
+    const message = context()?.chat?.[id];
+    if (message) return !!message.is_user;
+    const element = floorElement(id);
+    if (element) return element.getAttribute('is_user') === 'true' || element.dataset.role === 'user';
+    try { return !!readMessage(id).is_user; } catch { return false; }
+  };
   const readerDocument = () => {
     try {
       return reader.frame.contentDocument;
@@ -154,6 +173,9 @@ export function startAssistant(): void {
     },
   });
   const hideReader = () => {
+    searchRequest++;
+    searchRows = [];
+    searchCache = null;
     autoReader.pause();
     messageRenderer.unmountDocuments();
     readerState = null;
@@ -251,6 +273,8 @@ export function startAssistant(): void {
     ui.go.disabled = busy || last < 0;
     ui.view.disabled = ui.swipes.disabled = busy || last < 0;
     ui.viewBookmarks.disabled = busy || last < 0;
+    $('.view-search').disabled = busy || last < 0;
+    $('.reader-search').disabled = busy;
     ui.back.disabled = ui.return.disabled = busy || !history.length;
     setText(ui.return.querySelector('span'), history.length ? `返回 ${history.at(-1).id} 楼` : '返回');
     if (ui.panel.getAttribute('aria-busy') !== String(busy)) ui.panel.setAttribute('aria-busy', String(busy));
@@ -593,10 +617,10 @@ export function startAssistant(): void {
   };
   const goTo = async (id, token, preferReader = false, offset = 0, options = {}) => {
     if (disposed || token !== generation) throw new Error('聊天已切换，本次跳转已取消。');
-    let el = !preferReader && floorElement(id);
+    let el = !preferReader && !isHiddenUser(id) && floorElement(id);
     // 只有明确开启原生虚拟聊天的 TauriTavern 才允许宿主跳转，普通酒馆不批量加载。
     const virtual = page.__TAURITAVERN__?.api?.chatSurface?.isManagedOwnershipRequired?.() === true;
-    if (!el && !preferReader && virtual) {
+    if (!el && !preferReader && virtual && !isHiddenUser(id)) {
       const helper = page.TavernHelper;
       const jump = typeof triggerSlash === 'function' ? triggerSlash : helper?.triggerSlash?.bind(helper);
       if (jump) {
@@ -850,12 +874,34 @@ export function startAssistant(): void {
   listen(ui.swipes, 'click', () => openMessage(true));
   listen(reader.latest, 'click', () => openMessage(false, true));
   const renderArchive = () => {
+    const request = ++searchRequest;
+    if (collectionMode === 'search') {
+      const query = archive.search.value;
+      const key = JSON.stringify([query, preferences.hideUser, archive.hideBookmarks.checked]);
+      if (searchCache?.key === key) {
+        archivePage = renderSearchPage(doc, archive, searchCache.rows, archivePage, query);
+        return;
+      }
+      archive.previous.disabled = archive.next.disabled = true;
+      archive.page.textContent = '正在搜索…';
+      archive.list.replaceChildren();
+      searchFloors(searchRows, query,
+        row => (!preferences.hideUser || row.role !== '用户') && (!archive.hideBookmarks.checked || !isBookmarked(row.id)),
+        () => disposed || !archiveMode || collectionMode !== 'search' || request !== searchRequest,
+        () => new Promise(resolve => page.setTimeout(resolve, 0)),
+      ).then(rows => {
+        if (!rows || disposed || request !== searchRequest) return;
+        searchCache = { key, rows };
+        archivePage = renderSearchPage(doc, archive, rows, archivePage, query);
+      });
+      return;
+    }
     const result = collectionMode === 'bookmarks'
-      ? renderBookmarkPage(doc, archive, bookmarkRows, archivePage, archive.search.value)
+      ? renderBookmarkPage(doc, archive, preferences.hideUser ? bookmarkRows.filter(row => row.role !== '用户') : bookmarkRows, archivePage, archive.search.value)
       : renderArchivePage(
           doc,
           archive,
-          archiveRows,
+          preferences.hideUser ? archiveRows.filter(row => row.role !== '用户') : archiveRows,
           archivePage,
           archive.search.value,
           archive.hideBookmarks.checked,
@@ -869,6 +915,7 @@ export function startAssistant(): void {
     $('.reader-auto').hidden = true;
     update();
     collectionMode = mode;
+    searchCache = null;
     if (mode === 'bookmarks') {
       bookmarkRows = [...bookmarkedIds.entries()].sort(([a], [b]) => a - b).map(([id, title]) => {
         try {
@@ -886,6 +933,10 @@ export function startAssistant(): void {
       });
       archive.hideBookmarks.closest('label').hidden = true;
       archive.search.placeholder = '搜索备注标题、楼层或内容';
+    } else if (mode === 'search') {
+      searchRows = collectSearchRows(context()?.chat, page, lastId());
+      archive.hideBookmarks.closest('label').hidden = false;
+      archive.search.placeholder = '输入楼层号、角色名或正文关键词';
     } else {
       archiveRows = collectArchiveRows(context()?.chat, page, lastId());
       archive.hideBookmarks.closest('label').hidden = false;
@@ -899,7 +950,7 @@ export function startAssistant(): void {
     archive.panel.hidden = false;
     reader.frame.hidden = true;
     $('.reader-swipes').hidden = $('.reader-actions').hidden = true;
-    reader.title.textContent = mode === 'bookmarks' ? '收藏夹' : '回复目录';
+    reader.title.textContent = mode === 'search' ? '搜索楼层' : mode === 'bookmarks' ? '收藏夹' : '回复目录';
     closePanel();
     renderArchive();
     update();
@@ -908,6 +959,25 @@ export function startAssistant(): void {
   };
   const openArchive = () => openCollection('replies');
   const openBookmarks = () => openCollection('bookmarks');
+  const openSearch = () => openCollection('search');
+  listen($('.view-search'), 'click', openSearch);
+  listen($('.reader-search'), 'click', openSearch);
+  for (const [selector, key] of [['.pref-hide-user', 'hideUser'], ['.pref-return-top', 'returnTop']] as const)
+    shadow.querySelectorAll<HTMLInputElement>(selector).forEach(input => listen(input, 'change', () => {
+      const anchor = currentFloor();
+      const offset = anchor && chat ? chat.scrollTop - contentTop(anchor) : 0;
+      preferences[key] = input.checked;
+      shadow.querySelectorAll<HTMLInputElement>(selector).forEach(other => other.checked = input.checked);
+      saveReadingPreferences(page, preferences);
+      if (key === 'hideUser') {
+        userVisibility.apply(chat, preferences.hideUser);
+        if (anchor?.getClientRects().length) scrollTo(contentTop(anchor) + offset);
+        searchCache = null;
+        if (archiveMode) { archivePage = 0; renderArchive(); }
+        scan();
+      }
+      update();
+    }));
   listen($('.view-archive'), 'click', openArchive);
   listen($('.reader-archive'), 'click', openArchive);
   listen(reader.bookmarks, 'click', openBookmarks);
@@ -1068,6 +1138,35 @@ export function startAssistant(): void {
     listen(page.visualViewport, 'resize', requestPlace);
     listen(page.visualViewport, 'scroll', requestPlace);
   }
+  const generationReturn = createGenerationReturn({
+    page,
+    identity: () => chatKey(context()),
+    enabled: () => !disposed && preferences.returnTop,
+    output: () => {
+      const id = nearestAssistant();
+      if (id === null) return null;
+      try { const message = readMessage(id); return { id, text: message.mes, swipe: message.swipe_id }; }
+      catch { return null; }
+    },
+    returnTo: id => {
+      if (disposed || busy || archiveMode) return;
+      if (readerState) {
+        if (readerState.id !== id) return;
+        page.clearTimeout(refreshTimer);
+        refreshTimer = 0;
+        goTo(id, generation, true, 0, { focus: false }).catch(() => {});
+      } else {
+        const element = floorElement(id);
+        if (element?.getClientRects().length) {
+          autoReader.pause();
+          saveHistory(snapshot());
+          scrollTo(contentTop(element));
+          update();
+        }
+      }
+    },
+  });
+  cleanups.push(() => generationReturn.cancel());
   let chatObserver = null;
   const bindChat = () => {
     const next = doc.querySelector('#chat');
@@ -1075,6 +1174,8 @@ export function startAssistant(): void {
     if (chat) chat.removeEventListener('scroll', schedule);
     chatObserver?.disconnect();
     chat = next;
+    userVisibility.apply(chat, preferences.hideUser);
+    generationReturn.cancel();
     generation++;
     history = [];
     messageAccess.clear();
@@ -1107,6 +1208,7 @@ export function startAssistant(): void {
   }
   if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
     const onChanged = eventOn(tavern_events.CHAT_CHANGED, () => {
+      generationReturn.cancel();
       generation++;
       history = [];
       messageAccess.clear();
@@ -1130,7 +1232,8 @@ export function startAssistant(): void {
       }
     }
     if (tavern_events.GENERATION_STARTED) {
-      const sub = eventOn(tavern_events.GENERATION_STARTED, () => {
+      const sub = eventOn(tavern_events.GENERATION_STARTED, (type, options, dryRun) => {
+        generationReturn.start(type, options, dryRun);
         generating = true;
         try {
           const id = nearestAssistant();
@@ -1146,6 +1249,8 @@ export function startAssistant(): void {
     for (const name of ['GENERATION_ENDED', 'GENERATION_STOPPED']) {
       if (tavern_events[name]) {
         const sub = eventOn(tavern_events[name], () => {
+          if (name === 'GENERATION_ENDED') generationReturn.complete();
+          else generationReturn.cancel();
           generating = false;
           updateSwipeControls();
           scheduleRefresh();

@@ -6,7 +6,7 @@ export const CAT_ICON = /* @__PURE__ */ svg('来信喵', `
       <path d="m23 26 3 1 2-1m9 0 3 1 2-1" stroke="var(--cat-ear,#f1f6ff)" stroke-width="2"/>
       <path d="m31 30 2 1 2-1" stroke="var(--cat-ear,#f1f6ff)" stroke-width="1.8"/>
       <rect x="9" y="33" width="46" height="23" rx="5" fill="var(--cat-paper,var(--cat-ear,#f1f6ff))" stroke="var(--cat-line,#345577)" stroke-width="2"/>
-      <path d="m10 36 18 12q4 3 8 0l18-12M11 53l13-10m29 10L40 43" stroke="var(--cat-line,#345577)" stroke-width="1.8"/>
+      <path d="m11 37 17 11q4 3 8 0l17-11" stroke="var(--cat-line,#345577)" stroke-width="1.8"/>
       <path d="M21 33v5m23-5v5" stroke="var(--cat-face,#7296be)" stroke-width="6"/>
       <path d="m53 11 1.2 3.8L58 16l-3.8 1.2L53 21l-1.2-3.8L48 16l3.8-1.2Z" fill="var(--cat-face,#7296be)"/>
     `);
