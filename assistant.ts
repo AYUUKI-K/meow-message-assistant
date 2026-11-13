@@ -9,6 +9,7 @@ import { createNativeTheme } from './native-theme';
 import { loadReadingPreferences, saveReadingPreferences, createUserMessageVisibility } from './reading-preferences';
 import { createGenerationReturn } from './generation-return';
 import { createMessageTopReturn } from './message-top';
+import { createScrollDiagnostics, scrollGeometry } from './scroll-diagnostics';
 import { collectSearchRows, searchFloors, renderSearchPage, type SearchRow } from './floor-search';
 
 const KEY = '__birdFloorNavigator_v1__';
@@ -963,6 +964,22 @@ export function startAssistant(): void {
   const openSearch = () => openCollection('search');
   listen($('.view-search'), 'click', openSearch);
   listen($('.reader-search'), 'click', openSearch);
+  listen($('.copy-scroll-diagnostics'), 'click', async () => {
+    const report = scrollDiagnostics.report();
+    const text = $('.scroll-diagnostics-text');
+    text.value = report;
+    try {
+      await page.navigator.clipboard.writeText(report);
+      showStatus('回顶诊断已复制，仅含楼层编号和页面尺寸。');
+    } catch {
+      text.hidden = false;
+      text.focus({ preventScroll: true });
+      text.select();
+      let copied = false;
+      try { copied = doc.execCommand('copy'); } catch { /* Manual copy remains available. */ }
+      showStatus(copied ? '回顶诊断已复制。' : '请长按下方诊断文字，选择全部并复制。');
+    }
+  });
   for (const [selector, key] of [['.pref-hide-user', 'hideUser'], ['.pref-return-top', 'returnTop']] as const)
     shadow.querySelectorAll<HTMLInputElement>(selector).forEach(input => listen(input, 'change', () => {
       const anchor = currentFloor();
@@ -1139,7 +1156,16 @@ export function startAssistant(): void {
     listen(page.visualViewport, 'resize', requestPlace);
     listen(page.visualViewport, 'scroll', requestPlace);
   }
-  const messageTopReturn = createMessageTopReturn(page);
+  const scrollDiagnostics = createScrollDiagnostics((id?: number) => {
+    const visible = currentFloor();
+    return {
+      enabled: preferences.returnTop, busy, archiveMode, readerOpen: !!readerState,
+      latestStoredId: lastId(), visibleId: visible ? floorId(visible) : null,
+      ...scrollGeometry(page, chat, id === undefined ? null : floorElement(id)),
+    };
+  });
+  const messageTopReturn = createMessageTopReturn(page, (phase, message) =>
+    scrollDiagnostics.record(phase, floorId(message)));
   cleanups.push(() => messageTopReturn.destroy());
   const generationReturn = createGenerationReturn({
     page,
@@ -1156,6 +1182,7 @@ export function startAssistant(): void {
       } catch { return null; }
     },
     returnTo: id => {
+      scrollDiagnostics.record('return-request', id);
       if (disposed || busy || archiveMode) return true;
       if (readerState) {
         if (readerState.id !== id) return true;
@@ -1220,11 +1247,17 @@ export function startAssistant(): void {
   }
   if (typeof eventOn === 'function' && typeof tavern_events !== 'undefined') {
     if (tavern_events.MESSAGE_RECEIVED) {
-      const sub = eventOn(tavern_events.MESSAGE_RECEIVED, (id, type) => generationReturn.received(id, type));
+      const sub = eventOn(tavern_events.MESSAGE_RECEIVED, (id, type) => {
+        if (preferences.returnTop) scrollDiagnostics.record('message-received', typeof id === 'number' ? id : undefined);
+        generationReturn.received(id, type);
+      });
       cleanups.push(() => sub.stop());
     }
     if (tavern_events.CHARACTER_MESSAGE_RENDERED) {
-      const sub = eventOn(tavern_events.CHARACTER_MESSAGE_RENDERED, id => generationReturn.rendered(id));
+      const sub = eventOn(tavern_events.CHARACTER_MESSAGE_RENDERED, id => {
+        if (preferences.returnTop) scrollDiagnostics.record('message-rendered', typeof id === 'number' ? id : undefined);
+        generationReturn.rendered(id);
+      });
       cleanups.push(() => sub.stop());
     }
     const onChanged = eventOn(tavern_events.CHAT_CHANGED, () => {
@@ -1253,6 +1286,8 @@ export function startAssistant(): void {
     }
     if (tavern_events.GENERATION_STARTED) {
       const sub = eventOn(tavern_events.GENERATION_STARTED, (type, options, dryRun) => {
+        scrollDiagnostics.reset();
+        if (preferences.returnTop) scrollDiagnostics.record('generation-started');
         generationReturn.start(type, options, dryRun);
         generating = true;
         try {
@@ -1269,6 +1304,7 @@ export function startAssistant(): void {
     for (const name of ['GENERATION_ENDED', 'GENERATION_STOPPED']) {
       if (tavern_events[name]) {
         const sub = eventOn(tavern_events[name], () => {
+          if (preferences.returnTop) scrollDiagnostics.record(name === 'GENERATION_ENDED' ? 'generation-ended' : 'generation-stopped');
           if (name === 'GENERATION_ENDED') generationReturn.complete();
           else generationReturn.stop();
           generating = false;

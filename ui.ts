@@ -41,6 +41,7 @@ export function createAssistantUi(doc: Document): AssistantUi {
           <div class="panel-preferences"><label><input class="pref-hide-user" type="checkbox">隐藏用户输入楼层</label><label><input class="pref-return-top" type="checkbox">输出完成后回到本楼顶部</label></div>
           ${autoControls()}
           <div class="bottom"><button class="side" type="button">移到左侧</button></div>
+          <details class="scroll-diagnostics"><summary>回顶排查</summary><button class="copy-scroll-diagnostics" type="button">复制回顶诊断</button><textarea class="scroll-diagnostics-text" readonly hidden aria-label="回顶诊断，可长按复制"></textarea></details>
           <p class="status" id="bird-status" role="status" aria-live="polite" aria-atomic="true"></p></div>
         </section>
         <div class="toast" role="status" aria-live="polite" hidden></div>

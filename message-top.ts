@@ -1,7 +1,7 @@
 import { contentTop, scrollMessageToTop } from './positioning';
 
 /** Recheck only the completed message while final regex/HTML layout settles. */
-export function createMessageTopReturn(page: Window) {
+export function createMessageTopReturn(page: Window, trace?: (phase: string, message: HTMLElement) => void) {
   let timers: number[] = [];
   const cancel = () => {
     timers.forEach(timer => page.clearTimeout(timer));
@@ -16,7 +16,9 @@ export function createMessageTopReturn(page: Window) {
   return {
     align(chat: HTMLElement, message: HTMLElement, valid: () => boolean) {
       cancel();
+      trace?.('before-align', message);
       if (!valid() || !scrollMessageToTop(page, chat, message)) return false;
+      trace?.('after-align', message);
       // Bounded work: no whole-chat observer, historical rendering or per-frame scans.
       for (const delay of [120, 350, 800, 1500]) timers.push(page.setTimeout(() => {
         if (!valid() || !chat.isConnected || !message.isConnected || !chat.contains(message) || !message.getClientRects().length) {
@@ -25,6 +27,7 @@ export function createMessageTopReturn(page: Window) {
         }
         const target = Math.max(0, Math.min(contentTop(chat, message), chat.scrollHeight - chat.clientHeight));
         if (Math.abs(chat.scrollTop - target) > 1) scrollMessageToTop(page, chat, message);
+        trace?.(`after-${delay}ms`, message);
       }, delay));
       return true;
     },

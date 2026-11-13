@@ -13,6 +13,7 @@ async function source(name) {
 const { contentTop, scrollMessageToTop } = await source('positioning');
 const { createMessageTopReturn } = await source('message-top');
 const { createGenerationReturn } = await source('generation-return');
+const { createScrollDiagnostics, scrollGeometry } = await source('scroll-diagnostics');
 function clock(base = {}) {
   let now = 0, next = 0;
   const timers = new Map(), listeners = new Map();
@@ -137,4 +138,40 @@ test('generation restart, stop and chat switch cancel post-render correction', (
   g.start(); g.received(112); identity = 'b'; g.cancel(); c.advance(1000);
   assert.deepEqual(calls, []);
   assert.equal(cancelled, 4);
+});
+test('geometry diagnostics do not access chat text, page URLs, cookies or storage', () => {
+  const f = layout({ scale: 1.25 });
+  f.message.getAttribute = key => key === 'mesid' ? '112' : null;
+  f.chat.querySelector = () => f.message;
+  const style = { transform: 'matrix(1.25, 0, 0, 1.25, 0, 0)', overflowY: 'auto', flexDirection: 'column',
+    getPropertyValue: key => key === 'zoom' ? '1.25' : 'auto' };
+  const page = { ...f.page, innerWidth: 390, innerHeight: 280,
+    visualViewport: { width: 320, height: 230, offsetTop: 20, scale: 1.2 },
+    document: { scrollingElement: f.chat }, getComputedStyle: () => style };
+  for (const [object, key] of [[f.message, 'textContent'], [page, 'location'], [page, 'localStorage'], [page.document, 'cookie']])
+    Object.defineProperty(object, key, { get() { throw new Error(`private data accessed: ${key}`); } });
+  const result = scrollGeometry(page, f.chat, f.message);
+  assert.equal(result.targetDomId, 112);
+  assert.equal(result.lastRenderedId, 112);
+  assert.equal(result.viewport.visualHeight, 230);
+  assert.equal(result.chat.height, 755);
+  assert.doesNotMatch(JSON.stringify(result), /textContent|location|cookie|localStorage/);
+});
+test('diagnostic buffer is bounded and remeasures the last target when copied later', () => {
+  let time = 0;
+  const diagnostics = createScrollDiagnostics(id => ({ target: id ?? null, height: time }), () => time);
+  for (let i = 0; i < 40; i++) { time++; diagnostics.record('sample', 112); }
+  time = 5000;
+  const report = JSON.parse(diagnostics.report());
+  assert.equal(report.events.length, 18);
+  assert.equal(report.current.target, 112);
+  assert.equal(report.current.height, 5000);
+  diagnostics.reset();
+  assert.equal(JSON.parse(diagnostics.report()).events.length, 0);
+  assert.equal(JSON.parse(diagnostics.report()).current.target, null);
+});
+test('unavailable diagnostic geometry never interrupts the script', () => {
+  const diagnostics = createScrollDiagnostics(() => { throw new Error('detached'); });
+  assert.doesNotThrow(() => diagnostics.record('sample', 112));
+  assert.equal(JSON.parse(diagnostics.report()).current.unavailable, true);
 });
