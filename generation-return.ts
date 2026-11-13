@@ -2,10 +2,11 @@ type Output = { id: number; text: string; swipe: number };
 type Options = {
   page: Window; identity: () => string; enabled: () => boolean;
   output: (id?: number) => Output | null; returnTo: (id: number) => boolean;
+  cancelReturn?: () => void;
 };
 
 /** Prefer message receipt and final rendering; generation end is only a fallback. */
-export function createGenerationReturn({ page, identity, enabled, output, returnTo }: Options) {
+export function createGenerationReturn({ page, identity, enabled, output, returnTo, cancelReturn }: Options) {
   let active: { key: string; before: Output | null } | null = null;
   let pending: { key: string; id: number; attempts: number } | null = null;
   let delivered = '';
@@ -13,6 +14,7 @@ export function createGenerationReturn({ page, identity, enabled, output, return
   let timer = 0;
   const signature = (key: string, message: Output) => JSON.stringify([key, message.id, message.text, message.swipe]);
   const cancel = () => {
+    cancelReturn?.();
     active = pending = null;
     blocked = false;
     page.clearTimeout(timer); timer = 0;

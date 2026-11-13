@@ -3,7 +3,7 @@ name: Build and publish assistant
 on:
   push:
     branches: [main]
-    paths: ['**.ts', '**.css', 'build.mjs', 'package.json', 'package-lock.json', '.github/workflows/publish.yml']
+    paths: ['**.ts', '**.css', 'build.mjs', 'package.json', 'package-lock.json', 'tests/**', '.github/workflows/publish.yml']
   workflow_dispatch:
 
 permissions:
@@ -28,6 +28,7 @@ jobs:
         with:
           ref: release
           path: .release
+      - run: npm test
       - name: Build JSON and fingerprinted script
         run: npm run build
         env:

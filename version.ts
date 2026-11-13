@@ -1,1 +1,1 @@
-export const SCRIPT_VERSION = '2.9.1';
+export const SCRIPT_VERSION = '2.9.2';

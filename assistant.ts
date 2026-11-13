@@ -1,13 +1,14 @@
 import { collectArchiveRows, messagePreview, renderArchivePage, renderBookmarkPage } from './archive';
 import { createMessageAccess } from './message-access';
 import { createMessageRenderer } from './message-renderer';
-import { contentTop as getContentTop, findCurrentFloor, viewportBounds, scrollMessageToTop } from './positioning';
+import { contentTop as getContentTop, findCurrentFloor, viewportBounds } from './positioning';
 import { createAssistantUi } from './ui';
 import { createAutoReader } from './auto-reader';
 import { bindDockDrag } from './dock-drag';
 import { createNativeTheme } from './native-theme';
 import { loadReadingPreferences, saveReadingPreferences, createUserMessageVisibility } from './reading-preferences';
 import { createGenerationReturn } from './generation-return';
+import { createMessageTopReturn } from './message-top';
 import { collectSearchRows, searchFloors, renderSearchPage, type SearchRow } from './floor-search';
 
 const KEY = '__birdFloorNavigator_v1__';
@@ -1138,10 +1139,13 @@ export function startAssistant(): void {
     listen(page.visualViewport, 'resize', requestPlace);
     listen(page.visualViewport, 'scroll', requestPlace);
   }
+  const messageTopReturn = createMessageTopReturn(page);
+  cleanups.push(() => messageTopReturn.destroy());
   const generationReturn = createGenerationReturn({
     page,
     identity: () => chatKey(context()),
     enabled: () => !disposed && preferences.returnTop,
+    cancelReturn: () => messageTopReturn.cancel(),
     output: (requestedId?: number) => {
       const id = requestedId ?? nearestAssistant();
       if (id === null) return null;
@@ -1163,7 +1167,9 @@ export function startAssistant(): void {
         if (element?.getClientRects().length) {
           autoReader.pause();
           saveHistory(snapshot());
-          const scrolled = scrollMessageToTop(page, chat, element);
+          const key = chatKey(context());
+          const scrolled = messageTopReturn.align(chat, element, () =>
+            !disposed && preferences.returnTop && !busy && !archiveMode && !readerState && chatKey(context()) === key);
           update();
           return scrolled;
         }

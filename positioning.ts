@@ -49,7 +49,11 @@ export function findCurrentFloor(
 }
 
 export function contentTop(chat: HTMLElement, element: HTMLElement): number {
-  return chat.scrollTop + element.getBoundingClientRect().top - chat.getBoundingClientRect().top - chat.clientTop;
+  const rect = chat.getBoundingClientRect();
+  // Rects include theme zoom/transforms; scrollTop and clientTop use layout pixels.
+  const scale = chat.offsetHeight > 0 ? rect.height / chat.offsetHeight : 1;
+  const units = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  return chat.scrollTop + (element.getBoundingClientRect().top - rect.top) / units - chat.clientTop;
 }
 
 export function viewportBounds(page: Window & typeof globalThis) {
@@ -62,13 +66,14 @@ export function viewportBounds(page: Window & typeof globalThis) {
   };
 }
 
-/** Same document-offset calculation as the standalone message-received scroll script. */
+/** Align in the chat's own scroll coordinates, including scaled Tavern themes. */
 export function scrollMessageToTop(page: Window, chat: HTMLElement, message: HTMLElement): boolean {
-  if (!chat.isConnected || !message.isConnected || !message.getClientRects().length) return false;
-  const target = chat.scrollTop + message.getBoundingClientRect().top - chat.getBoundingClientRect().top - chat.clientTop;
+  if (!chat.isConnected || !message.isConnected || !chat.contains(message) || !message.getClientRects().length) return false;
+  const target = contentTop(chat, message);
   const max = Math.max(0, chat.scrollHeight - chat.clientHeight);
   const jquery = (page as any).jQuery;
   if (typeof jquery === 'function') jquery(chat).stop(true);
-  chat.scrollTo({ top: Math.max(0, Math.min(target, max)), behavior: page.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' as ScrollBehavior : 'smooth' });
+  // Long smooth animations can race streaming auto-scroll and post-render layout changes.
+  chat.scrollTo({ top: Math.max(0, Math.min(target, max)), behavior: 'instant' as ScrollBehavior });
   return true;
 }
